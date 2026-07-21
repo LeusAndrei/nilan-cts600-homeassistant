@@ -2,7 +2,7 @@ import logging
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -16,7 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """foo"""
+    """Set up button entities from a config entry."""
     _LOGGER.debug("%s setup_entry: %s", __name__, entry.data)
     await async_setup_platform(hass, entry.data, async_add_entities, entry_id=entry.entry_id)
 
@@ -29,7 +29,7 @@ async def async_setup_platform(
     entry_id: str | None = None,
 ) -> None:
     """Set up the platform."""
-    coordinator = await getCoordinator(hass, config)
+    coordinator = await getCoordinator(hass, config, entry_id=entry_id)
     async_add_entities(
         [
             CTS600Button(coordinator, key, entry_id)
@@ -59,5 +59,5 @@ class CTS600Button(CoordinatorEntity, ButtonEntity):
     async def async_press(self) -> None:
         await self.coordinator.key(self.key)
         self.coordinator.register_manual_activity()
-        self.coordinator.cts600.updateDisplay()
-        self.coordinator.async_set_updated_data(self.coordinator.data)
+        data = await self.coordinator.updateDisplay()
+        self.coordinator.async_set_updated_data(data)
