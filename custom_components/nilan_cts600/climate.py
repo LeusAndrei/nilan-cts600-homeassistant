@@ -8,11 +8,10 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .coordinator import getCoordinator
 
@@ -33,7 +32,7 @@ async def async_setup_platform(
     entry_id: str | None = None,
 ) -> None:
     """Set up the platform."""
-    coordinator = await getCoordinator(hass, config)
+    coordinator = await getCoordinator(hass, config, entry_id=entry_id)
     device = CTS600Climate(hass, coordinator, entry_id)
     async_add_entities([device], update_before_add=True)
 

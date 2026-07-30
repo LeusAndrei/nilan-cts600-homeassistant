@@ -7,7 +7,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
@@ -59,7 +59,7 @@ def discover_sensors(cts600):
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """foo"""
+    """Set up sensor entities from a config entry."""
     _LOGGER.debug("%s setup_entry: %s", __name__, entry.data)
     await async_setup_platform(hass, entry.data, async_add_entities, entry_id=entry.entry_id)
 
@@ -72,7 +72,7 @@ async def async_setup_platform(
     entry_id: str | None = None,
 ) -> None:
     """Set up the platform."""
-    coordinator = await getCoordinator(hass, config)
+    coordinator = await getCoordinator(hass, config, entry_id=entry_id)
     await coordinator.updateData()
     discovered_sensors = discover_sensors(coordinator.cts600)
     async_add_entities(
