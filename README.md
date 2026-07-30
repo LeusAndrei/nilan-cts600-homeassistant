@@ -18,6 +18,12 @@ there are button entities corresponding to the physical buttons, and
 separate sensor entities for the text display and various temperatures
 and fan speed.
 
+> **Connecting over WiFi instead of USB?** See
+> [ESP32_BRIDGE.md](ESP32_BRIDGE.md) for a detailed guide on using an ESP32
+> (running ESPHome as a Modbus TCP↔RTU bridge) instead of a directly-attached
+> USB-RS485 adapter — including hardware/module options, powering the ESP32
+> from the unit's 12 V bus, and the required `modbus_bridge` version pin.
+
 ![CTS600](https://nilanireland.ie/wp-content/uploads/2013/08/CTS-600-1.png "CTS600")
 
 # What is this integration for? #
