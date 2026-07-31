@@ -40,6 +40,13 @@ external_components:
   - source:
       type: git
       url: https://github.com/rosenrot00/esphome_modbus_bridge
+      # Pinned to 65caef9 — the parent of 3d1b5e0 "Validate RTU responses
+      # against active request" (the last commit WITHOUT response matching).
+      # The Nilan CTS600 uses a pseudo-Modbus protocol where the unit replies
+      # with a DIFFERENT function code than the request, which newer bridge
+      # versions drop ("RTU response does not match request"). This commit
+      # forwards responses transparently, as the CTS600 needs.
+      ref: 65caef9bea567f6e9ce78e703d1c37de31614b0c
     components: [modbus_bridge]
 
 uart:
