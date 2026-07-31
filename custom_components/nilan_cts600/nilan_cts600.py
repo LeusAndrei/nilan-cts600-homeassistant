@@ -5,7 +5,6 @@ import re
 import struct
 import time
 
-from pymodbus import FramerType
 from pymodbus.client import ModbusSerialClient, ModbusTcpClient
 from pymodbus.exceptions import ConnectionException
 from pymodbus.framer.rtu import FramerRTU
@@ -203,7 +202,9 @@ def decodeSlaveID(data, format=default_slave_id_format):
     f = format
     while f and (struct.calcsize(fb(f)) > len(data)):
         f = f[:-1]  # decrease struct format if there's not enough data
-    return dict(zip([n for n, s in f], struct.unpack_from(fb(f), data)))
+    return dict(
+        zip([n for n, s in f], struct.unpack_from(fb(f), data), strict=False)
+    )
 
 
 def read_response_tcp(rawRecv):
@@ -218,7 +219,6 @@ def read_response_tcp(rawRecv):
     frame = []
 
     def recv(n):
-        nonlocal frame
         if n == 0:
             return []
         b = rawRecv(n)
@@ -230,14 +230,14 @@ def read_response_tcp(rawRecv):
     word16b(recv)  # discard transaction ID
     word16b(recv)  # discard protocol ID
     word16b(recv)  # discard length
-    slave = word8(recv)
+    word8(recv)  # discard slave id
     function_code = word8(recv)
     try:
         op = NilanOperators(function_code)
-    except ValueError:
+    except ValueError as exc:
         raise NilanCTS600ProtocolError(
             f"Received unknown function code: {function_code}"
-        )
+        ) from exc
     parameters = ()
     data_size = None
 
@@ -273,7 +273,6 @@ def read_response_rtu(rawRecv):
     frame = []
 
     def recv(n):
-        nonlocal frame
         if n == 0:
             return []
         b = rawRecv(n)
@@ -282,14 +281,14 @@ def read_response_rtu(rawRecv):
         frame.extend(b)
         return b
 
-    slave = word8(recv)
+    word8(recv)  # discard slave id
     function_code = word8(recv)
     try:
         op = NilanOperators(function_code)
-    except ValueError:
+    except ValueError as exc:
         raise NilanCTS600ProtocolError(
             f"Received unknown function code: {function_code}"
-        )
+        ) from exc
     parameters = ()
     data_size = None
 
@@ -469,13 +468,15 @@ class CTS600:
             ),
         )
 
-    def doRequest(self, request, requestFrame=[]):
+    def doRequest(self, request, requestFrame=None):
         """Transmit a request and receive and process a response.  The
         request is sent to SELF.UNIT and the function-code is the
         first element of the REQUEST argument. Then REQUESTFRAME is
         tacked on the request.
 
         """
+        if requestFrame is None:
+            requestFrame = []
         (reqOP, *args) = request if isinstance(request, tuple) else (request,)
         self.send(reqOP, requestFrame)
         # Use appropriate response parser based on connection type
@@ -703,10 +704,9 @@ class CTS600:
                 # print (f"psearch: {display}")
                 next_gonext = gonext
                 for e in menu_spec_parallell:
-                    if not "regexp" in e:
+                    if "regexp" not in e:
                         raise Exception(
-                            f"Parallell menu_spec missing regexp: %s",
-                            menu_spec_parallell,
+                            f"Parallell menu_spec missing regexp: {menu_spec_parallell}"
                         )
                     if match := re.match(e["regexp"], display):
                         next_gonext = e.get("gonext", gonext)
@@ -931,7 +931,7 @@ class CTS600:
         # ordering of all_modes is important; it corresponds to CTS600
         # menu up to down.
         all_modes = ["AUTO", "COOL", "HEAT"]
-        if not mode in all_modes:
+        if mode not in all_modes:
             raise Exception(f"Illegal operation mode: {mode}")
         mode_index = all_modes.index(mode)
         # operate menu based on mode position, so as to operate
@@ -1012,11 +1012,10 @@ class CTS600Mockup(CTS600):
     }
     slave_id = None
 
-    def doRequest(self, request, requestFrame=[]):
+    def doRequest(self, request, requestFrame=None):
         import time
 
         time.sleep(0.1)
-        pass
 
     def initialize(self):
         CTS600.initialize(self)

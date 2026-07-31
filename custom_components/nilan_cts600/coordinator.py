@@ -6,18 +6,12 @@ import time
 
 import async_timeout
 
-from homeassistant.components.climate.const import (
-    ClimateEntityFeature,
-    HVACAction,
-    HVACMode,
-)
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
-from homeassistant.core import Event, EventStateChangedData, callback
+from homeassistant.core import Event, EventStateChangedData
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
     DataUpdateCoordinator,
     UpdateFailed,
 )
@@ -40,34 +34,42 @@ except ImportError:
 
 _LOGGER = logging.getLogger(__name__)
 
-if os.uname()[1] == "x390":
+if hasattr(os, "uname") and os.uname().nodename == "x390":
     # development mockup device
     _LOGGER.warning("%s Mockup device mode.", __name__)
-    from .nilan_cts600 import CTS600Mockup as CTS600
+    from .nilan_cts600 import CTS600Mockup as CTS600  # noqa: F811
 
 _initLock = asyncio.Lock()
 
 
-async def getCoordinator(hass, config):
+def connection_key_for(config):
+    """Return the stable key that identifies a physical connection.
+
+    Two config entries that resolve to the same key share one coordinator.
+    """
+    connection_type = config.get("connection_type", CONNECTION_TYPE_TCP)
+    if connection_type == CONNECTION_TYPE_TCP:
+        host = config.get("host")
+        tcp_port = config.get("tcp_port", 502)
+        return f"tcp://{host}:{tcp_port}"
+    port = config.get("port")
+    if port == "auto":
+        port = findUSB()
+    return port
+
+
+async def getCoordinator(hass, config, entry_id=None):
     async with _initLock:
         if DATA_KEY not in hass.data:
             hass.data[DATA_KEY] = {}
-        
-        connection_type = config.get("connection_type", CONNECTION_TYPE_TCP)
-        
-        # Determine the unique key for this connection
-        if connection_type == CONNECTION_TYPE_TCP:
-            host = config.get("host")
-            tcp_port = config.get("tcp_port", 502)
-            connection_key = f"tcp://{host}:{tcp_port}"
-        else:
-            port = config.get("port")
-            if port == "auto":
-                port = findUSB()
-            connection_key = port
-        
-        if connection_key in hass.data[DATA_KEY]:
-            return hass.data[DATA_KEY][connection_key]
+
+        connection_key = connection_key_for(config)
+
+        coordinator = hass.data[DATA_KEY].get(connection_key)
+        if coordinator is not None:
+            if entry_id:
+                coordinator.entry_ids.add(entry_id)
+            return coordinator
 
         _LOGGER.debug("Creating new coordinator for %s.", connection_key)
         coordinator = CTS600Coordinator(hass, config)
@@ -75,7 +77,12 @@ async def getCoordinator(hass, config):
             await coordinator.initialize()
         except Exception as e:
             _LOGGER.error("Device init failed for %s: %s", connection_key, e)
-            raise PlatformNotReady
+            # Release the socket/serial handle opened in the constructor so we
+            # don't leak a file descriptor on every retried setup attempt.
+            await hass.async_add_executor_job(coordinator.cts600.disconnect)
+            raise PlatformNotReady from e
+        if entry_id:
+            coordinator.entry_ids.add(entry_id)
         hass.data[DATA_KEY][connection_key] = coordinator
         _LOGGER.debug("Created new coordinator done for %s.", connection_key)
         return coordinator
@@ -112,7 +119,7 @@ class CTS600Coordinator(DataUpdateCoordinator):
             cts600.connect()
         except Exception as e:
             _LOGGER.error("Device connect failed for %s: %s", config, e)
-            raise PlatformNotReady
+            raise PlatformNotReady from e
 
         super().__init__(
             hass,
@@ -134,16 +141,28 @@ class CTS600Coordinator(DataUpdateCoordinator):
         self._t15_fallback = None
         self._updateDataCounter = 100
         self._manual_activity_ts = 0
+        self._unsub_t15 = None
+        # Config entries currently using this (possibly shared) coordinator.
+        self.entry_ids = set()
 
         if sensor_entity_id:
-            # sensor_state = hass.states.get(sensor_entity_id)
-            # if sensor_state:
-            #     self.hass.loop.create_task (self._update_T15_state (sensor_entity_id, None, sensor_state))
-            async_track_state_change_event(
+            self._unsub_t15 = async_track_state_change_event(
                 hass, sensor_entity_id, self._update_T15_state
             )
         else:
             self._t15_fallback = 21
+
+    async def async_shutdown(self):
+        """Cancel all listeners and close the device connection.
+
+        Called when the last config entry using this coordinator unloads.
+        """
+        await super().async_shutdown()
+        if self._unsub_t15 is not None:
+            self._unsub_t15()
+            self._unsub_t15 = None
+        if self.cts600:
+            await self.hass.async_add_executor_job(self.cts600.disconnect)
 
     def register_manual_activity(self):
         self._manual_activity_ts = time.time_ns() // 1000_000_000
@@ -163,20 +182,20 @@ class CTS600Coordinator(DataUpdateCoordinator):
         """
         try:
             if self.manual_mode():
-                # Do nothing, just update display
+                # Manual mode: just refresh the display text (serialized and
+                # off-loop via the coordinator wrapper).
                 await self.key(Key.NONE)
-                self.cts600.updateDisplay()
-            else:
-                async with async_timeout.timeout(15):
-                    if self._t15_fallback:
-                        await self.setT15(self._t15_fallback)
-                        self._t15_fallback = None
-                    updateShowData = False
-                    self._updateDataCounter += 1
-                    if self._updateDataCounter >= 10:
-                        updateShowData = True
-                        self._updateDataCounter = 0
-                    return await self.updateData(updateShowData=updateShowData)
+                return await self.updateDisplay()
+            async with async_timeout.timeout(15):
+                if self._t15_fallback:
+                    await self.setT15(self._t15_fallback)
+                    self._t15_fallback = None
+                updateShowData = False
+                self._updateDataCounter += 1
+                if self._updateDataCounter >= 10:
+                    updateShowData = True
+                    self._updateDataCounter = 0
+                return await self.updateData(updateShowData=updateShowData)
         except (
             TimeoutError,
             OSError,
@@ -198,8 +217,20 @@ class CTS600Coordinator(DataUpdateCoordinator):
                 raise UpdateFailed(
                     f"Connection failed and reconnect unsuccessful: {reconnect_err}"
                 ) from reconnect_err
-            raise UpdateFailed(f"Update failed: {err}") from err
-        return None
+            # Reconnect succeeded — fetch fresh data over the new connection so
+            # entities don't blip to 'unavailable' for a poll cycle.
+            try:
+                return await self.updateData(updateShowData=True)
+            except (
+                TimeoutError,
+                OSError,
+                ModbusConnectionException,
+                NilanCTS600Exception,
+                NilanCTS600ProtocolError,
+            ) as retry_err:
+                raise UpdateFailed(
+                    f"Update failed after reconnect: {retry_err}"
+                ) from retry_err
 
     async def _update_T15_state(self, event: Event[EventStateChangedData]) -> None:
         """Update thermostat with latest (room) temperature from sensor."""
@@ -297,6 +328,11 @@ class CTS600Coordinator(DataUpdateCoordinator):
 
     def updateData(self, updateShowData=True):
         return self._call(self.cts600.updateData, updateShowData)
+
+    async def updateDisplay(self):
+        """Refresh the top display text, serialized and off the event loop."""
+        await self._call(self.cts600.updateDisplay)
+        return self.cts600.data
 
     def setT15(self, celcius):
         return self._call(self.cts600.setT15, celcius)
