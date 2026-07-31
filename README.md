@@ -6,8 +6,6 @@ VPL-15](https://www.en.nilan.dk/products/ventilation-with-cooling-heating/heat-p
 ventilation unit. The integration connects to the ventilation unit over
 RS485/Modbus and **replaces the physical control panel**.
 
-![CTS600](https://nilanireland.ie/wp-content/uploads/2013/08/CTS-600-1.png "CTS600")
-
 The integration implements the
 [Climate](https://www.home-assistant.io/integrations/climate/)
 interface for Home Assistant. This means that you can set the
@@ -19,13 +17,18 @@ there are button entities corresponding to the physical buttons, and
 separate sensor entities for the text display and various temperatures
 and fan speed.
 
-> **Connecting over WiFi instead of USB?** See
-> [ESP32_BRIDGE.md](ESP32_BRIDGE.md) for a detailed guide on using an ESP32
-> (running ESPHome as a Modbus TCP↔RTU bridge) instead of a directly-attached
-> USB-RS485 adapter — including hardware/module options, powering the ESP32
-> from the unit's 12 V bus, and the required `modbus_bridge` version pin.
+There are **two ways to connect**, described in this document:
 
-![CTS600](https://nilanireland.ie/wp-content/uploads/2013/08/CTS-600-1.png "CTS600")
+| | **A. USB RS485 adapter** | **B. ESP32 WiFi bridge** |
+|---|---|---|
+| How | Adapter plugged into the HA machine | ESP32 running ESPHome as a Modbus TCP↔RTU bridge |
+| Cabling | RS485 cable from the unit to the HA server | Only WiFi; the ESP32 sits at the unit |
+| HA setting | `Modbus RTU (Serial)` | `Modbus TCP` |
+| Extra hardware | USB-RS485 adapter | ESP32 + RS485 module (+ optional 12 V buck converter) |
+
+---
+
+## Contents
 
 - [What is this integration for?](#what-is-this-integration-for)
 - [Physical connection to the CTS600](#physical-connection-to-the-cts600)
